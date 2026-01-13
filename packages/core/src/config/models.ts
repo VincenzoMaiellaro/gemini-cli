@@ -32,6 +32,13 @@ export const DEFAULT_GEMINI_EMBEDDING_MODEL = 'gemini-embedding-001';
 // Cap the thinking at 8192 to prevent run-away thinking loops.
 export const DEFAULT_THINKING_MODE = 8192;
 
+// Thinking budget preset constants for user-facing commands
+export const THINKING_BUDGET_OFF = 0;
+export const THINKING_BUDGET_LOW = 2048;
+export const THINKING_BUDGET_MEDIUM = 8192;
+export const THINKING_BUDGET_HIGH = 16384;
+export const THINKING_BUDGET_UNLIMITED = -1;
+
 /**
  * Resolves the requested model alias (e.g., 'auto-gemini-3', 'pro', 'flash', 'flash-lite')
  * to a concrete model name, considering preview features.

@@ -6,7 +6,11 @@
 
 import { ThinkingLevel } from '@google/genai';
 import type { ModelConfigServiceConfig } from '../services/modelConfigService.js';
-import { DEFAULT_THINKING_MODE } from './models.js';
+import {
+  DEFAULT_THINKING_MODE,
+  THINKING_BUDGET_HIGH,
+  THINKING_BUDGET_UNLIMITED,
+} from './models.js';
 
 // The default model configs. We use `base` as the parent for all of our model
 // configs, while `chat-base`, a child of `base`, is the parent of the models
@@ -87,6 +91,27 @@ export const DEFAULT_MODEL_CONFIGS: ModelConfigServiceConfig = {
       extends: 'chat-base-2.5',
       modelConfig: {
         model: 'gemini-2.5-flash-lite',
+      },
+    },
+    // Thinking variants for user-facing models with enhanced thinking budgets
+    'gemini-2.5-pro-thinking': {
+      extends: 'gemini-2.5-pro',
+      modelConfig: {
+        generateContentConfig: {
+          thinkingConfig: {
+            thinkingBudget: THINKING_BUDGET_UNLIMITED,
+          },
+        },
+      },
+    },
+    'gemini-2.5-flash-thinking': {
+      extends: 'gemini-2.5-flash',
+      modelConfig: {
+        generateContentConfig: {
+          thinkingConfig: {
+            thinkingBudget: THINKING_BUDGET_HIGH,
+          },
+        },
       },
     },
     // Bases for the internal model configs.

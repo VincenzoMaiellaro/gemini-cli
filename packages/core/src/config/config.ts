@@ -11,6 +11,7 @@ import type {
   ContentGenerator,
   ContentGeneratorConfig,
 } from '../core/contentGenerator.js';
+import { ThinkingLevel } from '@google/genai';
 import {
   AuthType,
   createContentGenerator,
@@ -66,8 +67,12 @@ import type { FallbackModelHandler } from '../fallback/types.js';
 import { ModelAvailabilityService } from '../availability/modelAvailabilityService.js';
 import { ModelRouterService } from '../routing/modelRouterService.js';
 import { OutputFormat } from '../output/types.js';
-import type { ModelConfigServiceConfig } from '../services/modelConfigService.js';
+import type {
+  ModelConfigServiceConfig,
+  ModelConfigOverride,
+} from '../services/modelConfigService.js';
 import { ModelConfigService } from '../services/modelConfigService.js';
+import { SessionThinkingState } from '../services/sessionThinkingState.js';
 import { DEFAULT_MODEL_CONFIGS } from './defaultModelConfigs.js';
 import { ContextManager } from '../services/contextManager.js';
 
@@ -353,6 +358,7 @@ export class Config {
   private contentGeneratorConfig!: ContentGeneratorConfig;
   private contentGenerator!: ContentGenerator;
   readonly modelConfigService: ModelConfigService;
+  private readonly sessionThinkingState: SessionThinkingState;
   private readonly embeddingModel: string;
   private readonly sandbox: SandboxConfig | undefined;
   private readonly targetDir: string;
@@ -678,6 +684,7 @@ export class Config {
     this.modelConfigService = new ModelConfigService(
       modelConfigServiceConfig ?? DEFAULT_MODEL_CONFIGS,
     );
+    this.sessionThinkingState = new SessionThinkingState();
   }
 
   /**
@@ -906,6 +913,105 @@ export class Config {
 
   getFallbackModelHandler(): FallbackModelHandler | undefined {
     return this.fallbackModelHandler;
+  }
+
+  /**
+   * Sets the session-level thinking budget override.
+   * @param budget The thinking budget in tokens (0=disabled, -1=unlimited, >0=token count)
+   */
+  setSessionThinkingBudget(budget: number | null): void {
+    this.sessionThinkingState.setOverride(budget);
+    if (budget !== null) {
+      this.updateThinkingOverride(budget);
+    }
+  }
+
+  /**
+   * Gets the active session thinking budget override.
+   * @returns The current override value, or null if using model defaults
+   */
+  getSessionThinkingBudget(): number | null {
+    return this.sessionThinkingState.getActiveOverride();
+  }
+
+  /**
+   * Clears the session thinking budget override, reverting to model defaults.
+   */
+  clearSessionThinkingBudget(): void {
+    this.sessionThinkingState.clearOverride();
+    // Note: We don't remove the override from modelConfigService here
+    // as it doesn't provide a removal mechanism. The override will simply
+    // not be applied when getActiveOverride() returns null.
+  }
+
+  /**
+   * Updates the model config service with the current thinking override.
+   * @private
+   */
+  private updateThinkingOverride(budget: number): void {
+    const currentModel = this.getModel();
+    const override = this.buildThinkingOverride(budget, currentModel);
+    this.modelConfigService.registerRuntimeModelOverride(override);
+  }
+
+  /**
+   * Builds a thinking config override for the given budget and model.
+   * Handles both Gemini 2.x (thinkingBudget) and 3.x (thinkingLevel) models.
+   * @private
+   */
+  private buildThinkingOverride(
+    budget: number,
+    model: string,
+  ): ModelConfigOverride {
+    // Match with empty object = lowest specificity (0 fields)
+    // This ensures agent overrides (with overrideScope) win
+    const match = {};
+
+    // Detect model version to use appropriate thinking config
+    const isGemini2 = /^gemini-2(\.|$)/.test(model);
+
+    if (isGemini2) {
+      // Gemini 2.x uses thinkingBudget (number)
+      return {
+        match,
+        modelConfig: {
+          generateContentConfig: {
+            thinkingConfig: {
+              thinkingBudget: budget,
+            },
+          },
+        },
+      };
+    } else {
+      // Gemini 3.x uses thinkingLevel (enum)
+      return {
+        match,
+        modelConfig: {
+          generateContentConfig: {
+            thinkingConfig: {
+              thinkingLevel: this.mapBudgetToThinkingLevel(budget),
+            },
+          },
+        },
+      };
+    }
+  }
+
+  /**
+   * Maps a thinking budget to a ThinkingLevel enum for Gemini 3.x models.
+   * Note: Gemini 3.x only supports LOW and HIGH thinking levels.
+   * @private
+   */
+  private mapBudgetToThinkingLevel(budget: number): ThinkingLevel {
+    // Note: There's no DISABLED level in the enum, so budget=0 maps to LOW
+    if (budget <= 0) {
+      return ThinkingLevel.LOW;
+    }
+    // Map budgets: LOW for small budgets, HIGH for medium and above
+    if (budget <= 4096) {
+      return ThinkingLevel.LOW;
+    }
+    return ThinkingLevel.HIGH;
   }
 
   resetTurn(): void {
